@@ -1,8 +1,6 @@
 const db=require('../db/index')
-// const csv=require('csvtojson')
 const dayjs=require('dayjs')
 const fs=require('fs')
-const { emitWarning } = require('process')
 
 exports.forAdd=(req,res)=>{
   console.log(req.body)
@@ -18,7 +16,11 @@ exports.forAdd=(req,res)=>{
 
 // 一次性获取所有信息（盘点用）
 exports.getAllDevice=(req,res)=>{
-  const sql=`select * from fixed_assets where ${req.query.search_type} = "${req.query.search_thing}"`
+  // 通过query传来的array会变成string，不可直接拼接sql，需要把首尾的[]处理掉
+  const without=req.query.without.substring(1,req.query.without.length-1)
+  const sql=`select * from fixed_assets 
+              where (${req.query.search_type} = "${req.query.search_thing}") 
+              and (id not in (${without.length===0? 0 : without}))`
   db.query(sql,(err,results)=>{
     if(err) return console.log(err.message)
     results.forEach((item)=>{
@@ -33,7 +35,6 @@ exports.getDevice=(req,res)=>{
   const page=req.query.page
   const startPage=(page - 1)*10
   const sql= `select * from fixed_assets where ${req.query.search_type} like "%${req.query.search_thing}%" limit ${startPage} , 10`
-  // const sql=`select * from fixed_assets where ${req.query.search_type} like "%${req.query.search_thing}%" limit ? , ?`
   db.query(sql,(err,results)=>{
     if(err) return console.log(err.message)
     results.forEach((item)=>{
@@ -66,17 +67,14 @@ exports.getFileList=(req,res)=>{
 }
 // 从服务器中拉取文件
 exports.getFile=(req,res)=>{
-  // const img=fs.readFile('static/erlou.jpg',(err,data)=>{
-  //   res.send(data)
-  // })
   fs.readFile('static/'+req.query.filename,'utf-8',(err,data)=>{
     if(err) return console.log(err.message)
-    // console.log(data)
     res.setHeader('Content-Type','application/vnd.ms-excel')
     res.send(data)
   })
 
 }
+// 盘点结果提交
 exports.postResults=(req,res)=>{
   const today=dayjs(Date.now()).format('YYYYMMDD')
   const area=req.body.area
@@ -92,7 +90,7 @@ exports.postResults=(req,res)=>{
     ngReasonList.push(item.reason)
   })
   const sql1=`select sap_number,device_name from fixed_assets where id in (${okList})`
-  const sql2=`select sap_number,device_name from fixed_assets where id in (${ngList | ''})`
+  const sql2=`select sap_number,device_name from fixed_assets where id in (${ngList.length===0? 0: ngList })`
     // 用id请求okList
     db.query(sql1,(err,results)=>{
       if(err) return console.log(err.message)
@@ -130,9 +128,31 @@ exports.postResults=(req,res)=>{
       })
     })
 }
+// 获取设备位置信息
+exports.getPosition=(req,res)=>{
+  const sql='select id,position_x,position_y from fixed_assets where area=?'
+  db.query(sql,req.query.area,(err,results)=>{
+    if(err) return console.log(err.message)
+    res.send(results)
+  })
+}
+// 传入设备位置信息
+exports.setPosition=(req,res)=>{
+  const sql='update fixed_assets set position_x=?,position_y=? where id=?'
+  req.body.sendList.forEach((item)=>{
+    const position_x=item.position_x+(item.afterX-item.beforeX)
+    const position_y=item.position_y+(item.afterY-item.beforeY)
+    db.query(sql,[position_x,position_y,item.id],(err,results)=>{
+      if(err) return console.log(err.message)
+    })
+    
+  })
+  res.send('ok')
+}
+// const csv=require('csvtojson')
 // exports.forIn=(req,res)=>{
 //   sql='insert into fixed_assets set ?'
-//   csv().fromFile('D:\\backgroundServer\\forLayout\\fixedAssets.csv')
+//   csv().fromFile('D:\\backgroundServer\\forLayout\\static\\fixedAssets1.csv')
 //   .then((json)=>{
 //     json.forEach((item)=>{
 //       db.query(sql,item,(err,results)=>{
